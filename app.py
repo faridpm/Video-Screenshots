@@ -97,17 +97,18 @@ def match_transcript(timestamp_s, segments, window=4):
     return ' '.join(texts)
 
 
-def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95):
+def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scale=4):
     img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
     w, h = img.size
-    font_size = max(18, w // 50)
+    font_size = max(14, w // 80) * font_scale
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
     except:
         font = ImageFont.load_default()
-    chars_per_line = max(40, w // (font_size // 2 + 1))
+    char_w = max(1, int(font_size * 0.55))
+    chars_per_line = max(10, (w - 24) // char_w)
     wrapped = textwrap.wrap(caption, width=chars_per_line) if caption.strip() else ["(no transcript)"]
-    line_h = font_size + 8
+    line_h = int(font_size * 1.25)
     box_h = len(wrapped) * line_h + 24
     new_img = Image.new('RGB', (w, h + box_h), (245, 245, 245))
     new_img.paste(img, (0, 0))
@@ -497,7 +498,14 @@ if st.session_state.screenshots:
                 st.divider()
 
             st.subheader("Download")
-            dl_col1, dl_col2 = st.columns(2)
+
+            font_scale = st.slider(
+                "Caption text size",
+                min_value=1, max_value=8, value=4,
+                help="Controls how large the text appears in the caption bar below each image."
+            )
+
+            dl_col1, dl_col2, dl_col3 = st.columns(3)
 
             with dl_col1:
                 if st.button("Generate images with caption bar", key="gen_annotated"):
@@ -506,7 +514,7 @@ if st.session_state.screenshots:
                         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                             for fname, img_bytes, _ in active:
                                 caption = get_caption(fname)
-                                annotated = add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=jpeg_quality)
+                                annotated = add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=jpeg_quality, font_scale=font_scale)
                                 ext = "png" if use_png else "jpg"
                                 zf.writestr(fname.rsplit(".", 1)[0] + f"_annotated.{ext}", annotated)
                         zip_buf.seek(0)
@@ -523,11 +531,34 @@ if st.session_state.screenshots:
                 writer = csv.writer(csv_buf)
                 writer.writerow(["Screenshot", "Description"])
                 for fname, _, _ in active:
-                    writer.writerow([fname, get_caption(fname)])
+                    caption = get_caption(fname).replace('\n', ' ').replace('\r', ' ')
+                    writer.writerow([fname, caption])
                 st.download_button(
                     "Download CSV",
                     csv_buf.getvalue(),
                     file_name="transcript_mapping.csv",
                     mime="text/csv",
                     key="dl_csv",
+                )
+
+            with dl_col3:
+                import openpyxl
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Screenshots"
+                ws.append(["Screenshot", "Description"])
+                ws.column_dimensions["A"].width = 40
+                ws.column_dimensions["B"].width = 80
+                for fname, _, _ in active:
+                    caption = get_caption(fname).replace('\n', ' ').replace('\r', ' ')
+                    ws.append([fname, caption])
+                excel_buf = io.BytesIO()
+                wb.save(excel_buf)
+                excel_buf.seek(0)
+                st.download_button(
+                    "Download Excel",
+                    excel_buf,
+                    file_name="transcript_mapping.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_excel",
                 )
