@@ -63,14 +63,12 @@ def crop_frame(frame, top, bottom, left, right):
     return frame[int(h*top/100):int(h*(100-bottom)/100), int(w*left/100):int(w*(100-right)/100)]
 
 
-def build_contact_sheets(frames, per_row):
-    sheets = []
-    for i in range(0, len(frames), per_row):
-        row = frames[i:i+per_row]
-        while len(row) < per_row:
-            row.append(np.zeros_like(row[0]))
-        sheets.append(np.hstack(row))
-    return sheets
+def resize_frame(frame, max_width=800):
+    h, w = frame.shape[:2]
+    if w > max_width:
+        scale = max_width / w
+        frame = cv2.resize(frame, (max_width, int(h * scale)))
+    return frame
 
 
 if uploaded_file:
@@ -101,7 +99,6 @@ if uploaded_file:
             status = st.empty()
 
             parts = {p: [] for p in range(1, split_parts + 1)}
-            raw_frames = {p: [] for p in range(1, split_parts + 1)}
             screenshot_count = 0
             skipped_count = 0
             frame_number = 0
@@ -113,18 +110,18 @@ if uploaded_file:
                     break
 
                 if frame_number % interval_frames == 0:
-                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    processed = crop_frame(frame, crop_top, crop_bottom, crop_left, crop_right) if use_crop else frame
+                    processed = resize_frame(processed, max_width=800)
+                    gray = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
+
                     is_duplicate = last_saved_gray is not None and np.mean(cv2.absdiff(last_saved_gray, gray)) < 1.5
 
                     if not is_duplicate:
                         part_num = min(frame_number // frames_per_part + 1, split_parts)
                         ts = frame_number / fps
                         ts_str = f"{int(ts//3600):02d}h{int((ts%3600)//60):02d}m{int(ts%60):02d}s"
-                        save_frame = crop_frame(frame, crop_top, crop_bottom, crop_left, crop_right) if use_crop else frame
-                        _, img_bytes = cv2.imencode(".png", save_frame)
-                        parts[part_num].append((f"screenshot_{screenshot_count:04d}_{ts_str}.png", img_bytes.tobytes()))
-                        if use_contact_sheet:
-                            raw_frames[part_num].append(save_frame)
+                        _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        parts[part_num].append((f"screenshot_{screenshot_count:04d}_{ts_str}.jpg", img_bytes.tobytes()))
                         screenshot_count += 1
                         last_saved_gray = gray
                     else:
@@ -141,31 +138,48 @@ if uploaded_file:
             st.success(f"{screenshot_count} screenshots are ready!")
 
             for part_num in range(1, split_parts + 1):
-                part_label = f" (part {part_num} of {split_parts})" if split_parts > 1 else ""
+                part_screenshots = parts[part_num]
+                if not part_screenshots:
+                    continue
+
                 if use_contact_sheet:
-                    sheets = build_contact_sheets(raw_frames[part_num], per_row)
-                    if not sheets:
-                        continue
-                    zip_buffer = io.BytesIO()
-                    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                        for i, sheet in enumerate(sheets):
-                            _, img_bytes = cv2.imencode(".png", sheet)
-                            zf.writestr(f"contact_sheet_{i+1:03d}.png", img_bytes.tobytes())
-                    zip_buffer.seek(0)
-                    st.download_button(f"Download {len(sheets)} contact sheets{part_label} as ZIP", zip_buffer,
-                        file_name="contact_sheets.zip", mime="application/zip", key=f"sheet_{part_num}")
+                    sheets_buffer = io.BytesIO()
+                    sheet_count = 0
+                    with zipfile.ZipFile(sheets_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                        for i in range(0, len(part_screenshots), per_row):
+                            row_data = part_screenshots[i:i+per_row]
+                            row_frames = []
+                            for _, img_bytes in row_data:
+                                arr = np.frombuffer(img_bytes, np.uint8)
+                                row_frames.append(cv2.imdecode(arr, cv2.IMREAD_COLOR))
+                            while len(row_frames) < per_row:
+                                row_frames.append(np.zeros_like(row_frames[0]))
+                            sheet = np.hstack(row_frames)
+                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                            zf.writestr(f"contact_sheet_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                            sheet_count += 1
+                    sheets_buffer.seek(0)
+                    part_label = f" (part {part_num} of {split_parts})" if split_parts > 1 else ""
+                    st.download_button(
+                        f"Download {sheet_count} contact sheets{part_label} as ZIP",
+                        sheets_buffer,
+                        file_name=f"contact_sheets_part{part_num}.zip" if split_parts > 1 else "contact_sheets.zip",
+                        mime="application/zip",
+                        key=f"sheet_{part_num}",
+                    )
                 else:
-                    part_screenshots = parts[part_num]
-                    if not part_screenshots:
-                        continue
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                         for fname, data in part_screenshots:
                             zf.writestr(fname, data)
                     zip_buffer.seek(0)
                     label = f"Download part {part_num} of {split_parts} ({len(part_screenshots)} screenshots)" if split_parts > 1 else f"Download {screenshot_count} screenshots as ZIP"
-                    st.download_button(label, zip_buffer, file_name=f"screenshots_part{part_num}.zip" if split_parts > 1 else "screenshots.zip",
-                        mime="application/zip", key=f"part_{part_num}")
+                    st.download_button(
+                        label, zip_buffer,
+                        file_name=f"screenshots_part{part_num}.zip" if split_parts > 1 else "screenshots.zip",
+                        mime="application/zip",
+                        key=f"part_{part_num}",
+                    )
 
         finally:
             os.unlink(tmp_path)
