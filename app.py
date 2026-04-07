@@ -11,6 +11,7 @@ from pathlib import Path
 from math import ceil
 from PIL import Image, ImageDraw, ImageFont
 import textwrap
+import openpyxl
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -100,7 +101,8 @@ def match_transcript(timestamp_s, segments, window=4):
 def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scale=4):
     img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
     w, h = img.size
-    font_size = max(14, w // 80) * font_scale
+    base_size = max(16, w // 70)
+    font_size = base_size * font_scale
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
     except:
@@ -108,12 +110,12 @@ def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scal
     char_w = max(1, int(font_size * 0.55))
     chars_per_line = max(10, (w - 24) // char_w)
     wrapped = textwrap.wrap(caption, width=chars_per_line) if caption.strip() else ["(no transcript)"]
-    line_h = int(font_size * 1.25)
-    box_h = len(wrapped) * line_h + 24
+    line_h = int(font_size * 1.05)
+    box_h = len(wrapped) * line_h + 20
     new_img = Image.new('RGB', (w, h + box_h), (245, 245, 245))
     new_img.paste(img, (0, 0))
     draw = ImageDraw.Draw(new_img)
-    y = h + 12
+    y = h + 10
     for line in wrapped:
         draw.text((12, y), line, fill=(30, 30, 30), font=font)
         y += line_h
@@ -542,7 +544,6 @@ if st.session_state.screenshots:
                 )
 
             with dl_col3:
-                import openpyxl
                 wb = openpyxl.Workbook()
                 ws = wb.active
                 ws.title = "Screenshots"
