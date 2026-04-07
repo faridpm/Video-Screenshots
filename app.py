@@ -52,8 +52,14 @@ with st.expander("Contact Sheet option (recommended for Mural uploads)"):
     use_contact_sheet = st.checkbox("Create Contact Sheets instead of individual screenshots")
     if use_contact_sheet:
         per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5)
+        add_spacing = st.checkbox("Add spacing between screenshots", value=True)
+        if add_spacing:
+            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=15, step=5)
+        else:
+            spacing = 0
     else:
         per_row = 5
+        spacing = 0
 
 uploaded_file = st.file_uploader("Upload video", type=["mp4", "mov", "avi", "mkv"])
 
@@ -154,7 +160,17 @@ if uploaded_file:
                                 row_frames.append(cv2.imdecode(arr, cv2.IMREAD_COLOR))
                             while len(row_frames) < per_row:
                                 row_frames.append(np.zeros_like(row_frames[0]))
-                            sheet = np.hstack(row_frames)
+                            if spacing > 0:
+                                h = row_frames[0].shape[0]
+                                sep = np.ones((h, spacing, 3), dtype=np.uint8) * 240
+                                interleaved = []
+                                for idx, f in enumerate(row_frames):
+                                    interleaved.append(f)
+                                    if idx < len(row_frames) - 1:
+                                        interleaved.append(sep)
+                                sheet = np.hstack(interleaved)
+                            else:
+                                sheet = np.hstack(row_frames)
                             _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 85])
                             zf.writestr(f"contact_sheet_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
                             sheet_count += 1
