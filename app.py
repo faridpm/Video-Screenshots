@@ -97,31 +97,35 @@ def match_transcript(timestamp_s, segments, window=4):
     return ' '.join(texts)
 
 
-def add_caption_to_image(img_bytes, caption, use_png):
+def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95):
     img = Image.open(io.BytesIO(img_bytes)).convert('RGB')
     w, h = img.size
-    font_size = max(14, w // 60)
+    font_size = max(18, w // 50)
     try:
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
     except:
         font = ImageFont.load_default()
     chars_per_line = max(40, w // (font_size // 2 + 1))
     wrapped = textwrap.wrap(caption, width=chars_per_line) if caption.strip() else ["(no transcript)"]
-    line_h = font_size + 6
-    box_h = len(wrapped) * line_h + 20
+    line_h = font_size + 8
+    box_h = len(wrapped) * line_h + 24
     new_img = Image.new('RGB', (w, h + box_h), (245, 245, 245))
     new_img.paste(img, (0, 0))
     draw = ImageDraw.Draw(new_img)
-    y = h + 10
+    y = h + 12
     for line in wrapped:
-        draw.text((10, y), line, fill=(30, 30, 30), font=font)
+        draw.text((12, y), line, fill=(30, 30, 30), font=font)
         y += line_h
     out = io.BytesIO()
     if use_png:
         new_img.save(out, format='PNG')
     else:
-        new_img.save(out, format='JPEG', quality=92)
+        new_img.save(out, format='JPEG', quality=jpeg_quality, subsampling=0)
     return out.getvalue()
+
+
+def get_caption(fname):
+    return st.session_state.get(f"caption_{fname}", st.session_state.captions.get(fname, ""))
 
 
 # ─── Session state ─────────────────────────────────────────────────────────────
@@ -399,8 +403,6 @@ if st.session_state.screenshots:
                 st.session_state.deselected.discard(fname)
         with col_img:
             st.image(img_bytes, caption=ts_str, use_container_width=True)
-        if fname in deselected:
-            st.markdown("<p style='color:#aaa;font-size:0.85em;margin-top:-10px'>⊘ Excluded from download</p>", unsafe_allow_html=True)
         st.divider()
 
     selected_screenshots = [(f, b, t) for f, b, t in screenshots if f not in st.session_state.deselected]
@@ -503,8 +505,8 @@ if st.session_state.screenshots:
                         zip_buf = io.BytesIO()
                         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                             for fname, img_bytes, _ in active:
-                                caption = st.session_state.captions.get(fname, "")
-                                annotated = add_caption_to_image(img_bytes, caption, use_png)
+                                caption = get_caption(fname)
+                                annotated = add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=jpeg_quality)
                                 ext = "png" if use_png else "jpg"
                                 zf.writestr(fname.rsplit(".", 1)[0] + f"_annotated.{ext}", annotated)
                         zip_buf.seek(0)
@@ -519,10 +521,9 @@ if st.session_state.screenshots:
             with dl_col2:
                 csv_buf = io.StringIO()
                 writer = csv.writer(csv_buf)
-                writer.writerow(["filename", "timestamp", "transcript"])
-                for fname, _, ts in active:
-                    ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
-                    writer.writerow([fname, ts_str, st.session_state.captions.get(fname, "")])
+                writer.writerow(["Screenshot", "Description"])
+                for fname, _, _ in active:
+                    writer.writerow([fname, get_caption(fname)])
                 st.download_button(
                     "Download CSV",
                     csv_buf.getvalue(),
