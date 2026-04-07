@@ -103,10 +103,26 @@ def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scal
     w, h = img.size
     base_size = max(16, w // 70)
     font_size = base_size * font_scale
-    try:
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_size)
-    except:
-        font = ImageFont.load_default()
+    font_paths = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+    ]
+    font = None
+    for path in font_paths:
+        try:
+            font = ImageFont.truetype(path, font_size)
+            break
+        except:
+            continue
+    if font is None:
+        try:
+            font = ImageFont.load_default(size=font_size)
+        except:
+            font = ImageFont.load_default()
+            font_size = 10
     char_w = max(1, int(font_size * 0.55))
     chars_per_line = max(10, (w - 24) // char_w)
     wrapped = textwrap.wrap(caption, width=chars_per_line) if caption.strip() else ["(no transcript)"]
@@ -199,10 +215,10 @@ with st.expander("Crop settings (recommended: remove browser bar, macOS bar & we
     else:
         crop_top = crop_bottom = crop_left = crop_right = 0
 
-with st.expander("Contact Sheet option (recommended for Mural uploads)"):
-    st.markdown("**What is a Contact Sheet?**\nInstead of hundreds of individual images, screenshots are combined into wide rows (e.g. 5 per row). This keeps them in the correct left-to-right order when uploading to tools like **Mural**.")
-    use_contact_sheet = st.checkbox("Create Contact Sheets instead of individual screenshots")
-    if use_contact_sheet:
+with st.expander("Combined Screenshot Layout (recommended for Mural uploads)"):
+    st.markdown("Instead of hundreds of individual images, screenshots are combined into wide rows (e.g. 5 per row). This keeps them in the correct left-to-right order when uploading to tools like **Mural**.")
+    use_combined_layout = st.checkbox("Create Combined Screenshot Layout instead of individual screenshots")
+    if use_combined_layout:
         per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5)
         add_spacing = st.checkbox("Add spacing between screenshots", value=True)
         if add_spacing:
@@ -295,7 +311,7 @@ if uploaded_file:
                 if not part_screenshots:
                     continue
 
-                if use_contact_sheet:
+                if use_combined_layout:
                     sheets_buffer = io.BytesIO()
                     sheet_count = 0
                     with zipfile.ZipFile(sheets_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -304,29 +320,40 @@ if uploaded_file:
                             row_frames = []
                             for _, img_bytes, _ in row_data:
                                 arr = np.frombuffer(img_bytes, np.uint8)
-                                row_frames.append(cv2.imdecode(arr, cv2.IMREAD_COLOR))
-                            while len(row_frames) < per_row:
-                                row_frames.append(np.zeros_like(row_frames[0]))
+                                frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                                if frm is not None:
+                                    row_frames.append(frm)
+                            if not row_frames:
+                                continue
+                            target_h = row_frames[0].shape[0]
+                            normalized = []
+                            for frm in row_frames:
+                                if frm.shape[0] != target_h:
+                                    scale = target_h / frm.shape[0]
+                                    frm = cv2.resize(frm, (int(frm.shape[1] * scale), target_h))
+                                normalized.append(frm)
+                            while len(normalized) < per_row:
+                                blank = np.ones_like(normalized[0]) * 240
+                                normalized.append(blank)
                             if spacing > 0:
-                                h = row_frames[0].shape[0]
-                                sep = np.ones((h, spacing, 3), dtype=np.uint8) * 240
+                                sep = np.ones((target_h, spacing, 3), dtype=np.uint8) * 240
                                 interleaved = []
-                                for idx, f in enumerate(row_frames):
-                                    interleaved.append(f)
-                                    if idx < len(row_frames) - 1:
+                                for idx, frm in enumerate(normalized):
+                                    interleaved.append(frm)
+                                    if idx < len(normalized) - 1:
                                         interleaved.append(sep)
                                 sheet = np.hstack(interleaved)
                             else:
-                                sheet = np.hstack(row_frames)
+                                sheet = np.hstack(normalized)
                             _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                            zf.writestr(f"contact_sheet_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
                             sheet_count += 1
                     sheets_buffer.seek(0)
                     part_label = f" (part {part_num} of {split_parts})" if split_parts > 1 else ""
                     st.download_button(
-                        f"Download {sheet_count} contact sheets{part_label} as ZIP",
+                        f"Download {sheet_count} combined layouts{part_label} as ZIP",
                         sheets_buffer,
-                        file_name=f"contact_sheets_part{part_num}.zip" if split_parts > 1 else "contact_sheets.zip",
+                        file_name=f"combined_layout_part{part_num}.zip" if split_parts > 1 else "combined_layout.zip",
                         mime="application/zip",
                         key=f"sheet_{part_num}",
                     )
