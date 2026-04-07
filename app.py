@@ -40,15 +40,30 @@ def time_to_seconds(t):
 
 def parse_vtt(content):
     segments = []
-    pattern = re.compile(
-        r'(\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*\n(.*?)(?=\n\n|\Z)',
-        re.DOTALL
-    )
-    for m in pattern.finditer(content):
-        start = time_to_seconds(m.group(1))
-        end = time_to_seconds(m.group(2))
-        text = re.sub(r'<[^>]+>', '', m.group(3)).strip().replace('\n', ' ')
-        if text:
+    content = content.replace('\r\n', '\n').replace('\r', '\n')
+    fillers = {'mhm', 'ja', 'ok', 'okay', 'yes', 'hm', 'hmm', 'uh', 'um', 'ah', 'oh', 'no', 'yeah'}
+    blocks = re.split(r'\n[ \t]*\n', content)
+    for block in blocks:
+        lines = [l.strip() for l in block.strip().split('\n') if l.strip()]
+        ts_line_idx = None
+        for i, line in enumerate(lines):
+            if '-->' in line:
+                ts_line_idx = i
+                break
+        if ts_line_idx is None:
+            continue
+        ts_match = re.match(
+            r'(\d{1,2}:\d{2}:\d{2}[.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d{3})',
+            lines[ts_line_idx]
+        )
+        if not ts_match:
+            continue
+        start = time_to_seconds(ts_match.group(1))
+        end = time_to_seconds(ts_match.group(2))
+        text_lines = lines[ts_line_idx + 1:]
+        text = ' '.join(re.sub(r'<[^>]+>', '', l) for l in text_lines).strip()
+        clean = text.rstrip('.!?,').lower()
+        if text and len(text) > 5 and clean not in fillers:
             segments.append((start, end, text))
     return segments
 
@@ -77,7 +92,7 @@ def parse_docx(file_bytes):
     return segments
 
 
-def match_transcript(timestamp_s, segments, window=8):
+def match_transcript(timestamp_s, segments, window=4):
     texts = [t for s, e, t in segments if s <= timestamp_s + window and e >= timestamp_s - window]
     return ' '.join(texts)
 
@@ -116,6 +131,8 @@ if 'captions' not in st.session_state:
     st.session_state.captions = {}
 if 'page' not in st.session_state:
     st.session_state.page = 0
+if 'deselected' not in st.session_state:
+    st.session_state.deselected = set()
 
 
 # ─── UI ───────────────────────────────────────────────────────────────────────
@@ -263,6 +280,7 @@ if uploaded_file:
 
             st.session_state.screenshots = all_screenshots
             st.session_state.captions = {fname: "" for fname, _, _ in all_screenshots}
+            st.session_state.deselected = set()
             st.session_state.page = 0
 
             for part_num in range(1, split_parts + 1):
@@ -329,10 +347,88 @@ if uploaded_file:
             os.unlink(tmp_path)
 
 
-# ─── Step 2: Transcript Matching ──────────────────────────────────────────────
+# ─── Step 2: Review & Deselect Screenshots ────────────────────────────────────
 if st.session_state.screenshots:
     st.divider()
-    st.header("Step 2: Transcript Matching")
+    st.header("Step 2: Review Screenshots")
+    st.markdown("Uncheck screenshots you don't need — they will be excluded from all downloads.")
+
+    screenshots = st.session_state.screenshots
+    total = len(screenshots)
+    deselected = st.session_state.deselected
+
+    sel_col1, sel_col2, sel_col3 = st.columns([1, 1, 2])
+    with sel_col1:
+        if st.button("Select all"):
+            st.session_state.deselected = set()
+            st.rerun()
+    with sel_col2:
+        if st.button("Deselect all"):
+            st.session_state.deselected = {fname for fname, _, _ in screenshots}
+            st.rerun()
+    with sel_col3:
+        kept = total - len(deselected)
+        st.markdown(f"<div style='padding-top:8px'>{kept} of {total} selected</div>", unsafe_allow_html=True)
+
+    total_pages = ceil(total / 20)
+    page = st.session_state.page
+
+    col_prev, col_info, col_next = st.columns([1, 2, 1])
+    with col_prev:
+        if st.button("← Previous", key="prev_step2", disabled=page == 0):
+            st.session_state.page -= 1
+            st.rerun()
+    with col_info:
+        st.markdown(f"<div style='text-align:center'>Page {page+1} of {total_pages}</div>", unsafe_allow_html=True)
+    with col_next:
+        if st.button("Next →", key="next_step2", disabled=page >= total_pages - 1):
+            st.session_state.page += 1
+            st.rerun()
+
+    start_idx = page * 20
+    end_idx = min(start_idx + 20, total)
+
+    for fname, img_bytes, ts in screenshots[start_idx:end_idx]:
+        ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
+        col_cb, col_img = st.columns([1, 6])
+        with col_cb:
+            checked = st.checkbox("Keep", value=(fname not in deselected), key=f"sel_{fname}", label_visibility="collapsed")
+            if not checked:
+                st.session_state.deselected.add(fname)
+            else:
+                st.session_state.deselected.discard(fname)
+        with col_img:
+            st.image(img_bytes, caption=ts_str, use_container_width=True)
+        if fname in deselected:
+            st.markdown("<p style='color:#aaa;font-size:0.85em;margin-top:-10px'>⊘ Excluded from download</p>", unsafe_allow_html=True)
+        st.divider()
+
+    selected_screenshots = [(f, b, t) for f, b, t in screenshots if f not in st.session_state.deselected]
+    if selected_screenshots:
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for fname, img_bytes, _ in selected_screenshots:
+                if use_png:
+                    arr = np.frombuffer(img_bytes, np.uint8)
+                    frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                    _, png_bytes = cv2.imencode(".png", frm)
+                    zf.writestr(fname, png_bytes.tobytes())
+                else:
+                    zf.writestr(fname, img_bytes)
+        zip_buffer.seek(0)
+        st.download_button(
+            f"Download {len(selected_screenshots)} selected screenshots as ZIP",
+            zip_buffer,
+            file_name="screenshots_selected.zip",
+            mime="application/zip",
+            key="dl_selected",
+        )
+
+
+# ─── Step 3: Transcript Matching ──────────────────────────────────────────────
+if st.session_state.screenshots:
+    st.divider()
+    st.header("Step 3: Transcript Matching")
     st.markdown("Upload your meeting transcript to automatically match each screenshot with the spoken context. You can edit the text before downloading.")
 
     transcript_file = st.file_uploader(
@@ -343,40 +439,46 @@ if st.session_state.screenshots:
 
     if transcript_file:
         file_bytes = transcript_file.read()
-        if transcript_file.name.endswith(".vtt"):
+        if transcript_file.name.lower().endswith(".vtt"):
             segments = parse_vtt(file_bytes.decode("utf-8", errors="ignore"))
         else:
-            segments = parse_docx(file_bytes)
+            try:
+                segments = parse_docx(file_bytes)
+            except Exception as e:
+                st.error(f"Could not read DOCX file: {e}")
+                segments = []
 
         if not segments:
             st.warning("Could not parse transcript. Please check the file format.")
         else:
             st.success(f"Transcript loaded: {len(segments)} segments found.")
 
+            screenshots = st.session_state.screenshots
+            active = [(f, b, t) for f, b, t in screenshots if f not in st.session_state.deselected]
+
             if all(v == "" for v in st.session_state.captions.values()):
-                for fname, _, ts in st.session_state.screenshots:
+                for fname, _, ts in active:
                     st.session_state.captions[fname] = match_transcript(ts, segments)
 
-            screenshots = st.session_state.screenshots
-            total_pages = ceil(len(screenshots) / 20)
+            total_pages = ceil(len(active) / 20)
             page = st.session_state.page
 
             col_prev, col_info, col_next = st.columns([1, 2, 1])
             with col_prev:
-                if st.button("← Previous", disabled=page == 0):
+                if st.button("← Previous", key="prev_step3", disabled=page == 0):
                     st.session_state.page -= 1
                     st.rerun()
             with col_info:
-                st.markdown(f"<div style='text-align:center'>Page {page+1} of {total_pages} &nbsp;|&nbsp; {len(screenshots)} screenshots total</div>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center'>Page {page+1} of {total_pages} &nbsp;|&nbsp; {len(active)} screenshots</div>", unsafe_allow_html=True)
             with col_next:
-                if st.button("Next →", disabled=page >= total_pages - 1):
+                if st.button("Next →", key="next_step3", disabled=page >= total_pages - 1):
                     st.session_state.page += 1
                     st.rerun()
 
             start = page * 20
-            end = min(start + 20, len(screenshots))
+            end = min(start + 20, len(active))
 
-            for fname, img_bytes, ts in screenshots[start:end]:
+            for fname, img_bytes, ts in active[start:end]:
                 ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
                 col_img, col_text = st.columns([1, 2])
                 with col_img:
@@ -400,7 +502,7 @@ if st.session_state.screenshots:
                     with st.spinner("Adding captions to images..."):
                         zip_buf = io.BytesIO()
                         with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
-                            for fname, img_bytes, _ in screenshots:
+                            for fname, img_bytes, _ in active:
                                 caption = st.session_state.captions.get(fname, "")
                                 annotated = add_caption_to_image(img_bytes, caption, use_png)
                                 ext = "png" if use_png else "jpg"
@@ -418,7 +520,7 @@ if st.session_state.screenshots:
                 csv_buf = io.StringIO()
                 writer = csv.writer(csv_buf)
                 writer.writerow(["filename", "timestamp", "transcript"])
-                for fname, _, ts in screenshots:
+                for fname, _, ts in active:
                     ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
                     writer.writerow([fname, ts_str, st.session_state.captions.get(fname, "")])
                 st.download_button(
