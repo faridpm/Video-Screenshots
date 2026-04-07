@@ -33,6 +33,19 @@ with col2:
 
 st.caption("Tip: For large videos (over 500 MB), split into 2–3 parts to keep each download manageable.")
 
+with st.expander("Quality settings"):
+    quality_preset = st.radio(
+        "Screenshot quality",
+        options=["Standard (faster, smaller files)", "High (recommended)", "Maximum (slowest, largest files)"],
+        index=1,
+    )
+    quality_map = {
+        "Standard (faster, smaller files)": (800, 85),
+        "High (recommended)": (1280, 95),
+        "Maximum (slowest, largest files)": (1920, 100),
+    }
+    max_width, jpeg_quality = quality_map[quality_preset]
+
 with st.expander("Crop settings (recommended: remove browser bar, macOS bar & webcam panel)"):
     st.markdown("Cut away the macOS menu bar, browser bar, and webcam panel on the right so only the shared screen content is kept.")
     use_crop = st.checkbox("Enable crop")
@@ -117,7 +130,7 @@ if uploaded_file:
 
                 if frame_number % interval_frames == 0:
                     processed = crop_frame(frame, crop_top, crop_bottom, crop_left, crop_right) if use_crop else frame
-                    processed = resize_frame(processed, max_width=800)
+                    processed = resize_frame(processed, max_width=max_width)
                     gray = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
 
                     is_duplicate = last_saved_gray is not None and np.mean(cv2.absdiff(last_saved_gray, gray)) < 1.5
@@ -126,7 +139,7 @@ if uploaded_file:
                         part_num = min(frame_number // frames_per_part + 1, split_parts)
                         ts = frame_number / fps
                         ts_str = f"{int(ts//3600):02d}h{int((ts%3600)//60):02d}m{int(ts%60):02d}s"
-                        _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, 90])
+                        _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
                         parts[part_num].append((f"screenshot_{screenshot_count:04d}_{ts_str}.jpg", img_bytes.tobytes()))
                         screenshot_count += 1
                         last_saved_gray = gray
@@ -171,7 +184,7 @@ if uploaded_file:
                                 sheet = np.hstack(interleaved)
                             else:
                                 sheet = np.hstack(row_frames)
-                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, 85])
+                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
                             zf.writestr(f"contact_sheet_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
                             sheet_count += 1
                     sheets_buffer.seek(0)
