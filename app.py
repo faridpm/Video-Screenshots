@@ -187,7 +187,7 @@ with st.expander("Quality settings"):
     quality_preset = st.radio(
         "Screenshot quality",
         options=["Standard (faster, smaller files)", "High (recommended)", "Maximum (slowest, largest files)"],
-        index=1,
+        index=2,
     )
     quality_map = {
         "Standard (faster, smaller files)": (800, 85),
@@ -198,7 +198,7 @@ with st.expander("Quality settings"):
     img_format = st.radio(
         "Image format",
         options=["JPEG (smaller files, faster)", "PNG (lossless, sharper text)"],
-        index=0,
+        index=1,
     )
     use_png = "PNG" in img_format
 
