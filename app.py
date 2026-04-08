@@ -144,6 +144,7 @@ def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scal
 
 
 def get_caption(fname):
+    """Read the latest caption — prefer the live widget value over the stored one."""
     return st.session_state.get(f"caption_{fname}", st.session_state.captions.get(fname, ""))
 
 
@@ -210,7 +211,7 @@ with st.expander("Crop settings (recommended: remove browser bar, macOS bar & we
             crop_top = st.slider("Cut from top (%)", 0, 40, 19)
             crop_left = st.slider("Cut from left (%)", 0, 40, 0)
         with crop_col2:
-            crop_bottom = st.slider("Cut from bottom (%)", 0, 40, 4)
+            crop_bottom = st.slider("Cut from bottom (%)", 0, 40, 5)
             crop_right = st.slider("Cut from right (%)", 0, 40, 13)
     else:
         crop_top = crop_bottom = crop_left = crop_right = 0
@@ -222,7 +223,7 @@ with st.expander("Combined Screenshot Layout (recommended for Mural uploads)"):
         per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5)
         add_spacing = st.checkbox("Add spacing between screenshots", value=True)
         if add_spacing:
-            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=45, step=5)
+            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=30, step=5)
         else:
             spacing = 0
     else:
@@ -325,6 +326,7 @@ if uploaded_file:
                                     row_frames.append(frm)
                             if not row_frames:
                                 continue
+                            # Normalize all frames to the same height
                             target_h = row_frames[0].shape[0]
                             normalized = []
                             for frm in row_frames:
@@ -332,6 +334,7 @@ if uploaded_file:
                                     scale = target_h / frm.shape[0]
                                     frm = cv2.resize(frm, (int(frm.shape[1] * scale), target_h))
                                 normalized.append(frm)
+                            # Pad last row with white frames if needed
                             while len(normalized) < per_row:
                                 blank = np.ones_like(normalized[0]) * 240
                                 normalized.append(blank)
@@ -455,6 +458,60 @@ if st.session_state.screenshots:
             mime="application/zip",
             key="dl_selected",
         )
+
+        st.markdown("**Download as Combined Screenshot Layout**")
+        csl_col1, csl_col2 = st.columns(2)
+        with csl_col1:
+            csl_per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5, key="csl_per_row")
+        with csl_col2:
+            csl_spacing = st.slider("Spacing (pixels)", min_value=0, max_value=60, value=30, step=5, key="csl_spacing")
+
+        if st.button("Generate Combined Screenshot Layout", key="gen_csl"):
+            with st.spinner("Combining screenshots..."):
+                csl_buffer = io.BytesIO()
+                sheet_count = 0
+                with zipfile.ZipFile(csl_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for i in range(0, len(selected_screenshots), csl_per_row):
+                        row_data = selected_screenshots[i:i+csl_per_row]
+                        row_frames = []
+                        for _, img_bytes, _ in row_data:
+                            arr = np.frombuffer(img_bytes, np.uint8)
+                            frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                            if frm is not None:
+                                row_frames.append(frm)
+                        if not row_frames:
+                            continue
+                        target_h = row_frames[0].shape[0]
+                        normalized = []
+                        for frm in row_frames:
+                            if frm.shape[0] != target_h:
+                                scale = target_h / frm.shape[0]
+                                frm = cv2.resize(frm, (int(frm.shape[1] * scale), target_h))
+                            normalized.append(frm)
+                        while len(normalized) < csl_per_row:
+                            blank = np.ones_like(normalized[0]) * 240
+                            normalized.append(blank)
+                        if csl_spacing > 0:
+                            sep = np.ones((target_h, csl_spacing, 3), dtype=np.uint8) * 240
+                            interleaved = []
+                            for idx, frm in enumerate(normalized):
+                                interleaved.append(frm)
+                                if idx < len(normalized) - 1:
+                                    interleaved.append(sep)
+                            sheet = np.hstack(interleaved)
+                        else:
+                            sheet = np.hstack(normalized)
+                        _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                        zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                        sheet_count += 1
+                csl_buffer.seek(0)
+            st.download_button(
+                f"Download {sheet_count} combined layouts as ZIP",
+                csl_buffer,
+                file_name="combined_layout_selected.zip",
+                mime="application/zip",
+                key="dl_csl",
+            )
 
 
 # ─── Step 3: Transcript Matching ──────────────────────────────────────────────
