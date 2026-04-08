@@ -210,7 +210,7 @@ with st.expander("Crop settings (recommended: remove browser bar, macOS bar & we
             crop_top = st.slider("Cut from top (%)", 0, 40, 19)
             crop_left = st.slider("Cut from left (%)", 0, 40, 0)
         with crop_col2:
-            crop_bottom = st.slider("Cut from bottom (%)", 0, 40, 8)
+            crop_bottom = st.slider("Cut from bottom (%)", 0, 40, 4)
             crop_right = st.slider("Cut from right (%)", 0, 40, 13)
     else:
         crop_top = crop_bottom = crop_left = crop_right = 0
@@ -222,7 +222,7 @@ with st.expander("Combined Screenshot Layout (recommended for Mural uploads)"):
         per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5)
         add_spacing = st.checkbox("Add spacing between screenshots", value=True)
         if add_spacing:
-            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=15, step=5)
+            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=45, step=5)
         else:
             spacing = 0
     else:
