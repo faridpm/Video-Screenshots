@@ -407,7 +407,7 @@ if st.session_state.screenshots:
         kept = total - len(deselected)
         st.markdown(f"<div style='padding-top:8px'>{kept} of {total} selected</div>", unsafe_allow_html=True)
 
-    total_pages = ceil(total / 20)
+    total_pages = ceil(total / 10)
     page = st.session_state.page
 
     col_prev, col_info, col_next = st.columns([1, 2, 1])
@@ -422,8 +422,8 @@ if st.session_state.screenshots:
             st.session_state.page += 1
             st.rerun()
 
-    start_idx = page * 20
-    end_idx = min(start_idx + 20, total)
+    start_idx = page * 10
+    end_idx = min(start_idx + 10, total)
 
     for fname, img_bytes, ts in screenshots[start_idx:end_idx]:
         ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
@@ -435,29 +435,36 @@ if st.session_state.screenshots:
             else:
                 st.session_state.deselected.discard(fname)
         with col_img:
-            st.image(img_bytes, caption=ts_str, use_container_width=True)
+            # Display small thumbnail for review (saves memory/bandwidth)
+            arr = np.frombuffer(img_bytes, np.uint8)
+            thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+            thumb = resize_frame(thumb, max_width=480)
+            _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
         st.divider()
 
     selected_screenshots = [(f, b, t) for f, b, t in screenshots if f not in st.session_state.deselected]
     if selected_screenshots:
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for fname, img_bytes, _ in selected_screenshots:
-                if use_png:
-                    arr = np.frombuffer(img_bytes, np.uint8)
-                    frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                    _, png_bytes = cv2.imencode(".png", frm)
-                    zf.writestr(fname, png_bytes.tobytes())
-                else:
-                    zf.writestr(fname, img_bytes)
-        zip_buffer.seek(0)
-        st.download_button(
-            f"Download {len(selected_screenshots)} selected screenshots as ZIP",
-            zip_buffer,
-            file_name="screenshots_selected.zip",
-            mime="application/zip",
-            key="dl_selected",
-        )
+        if st.button(f"Generate ZIP ({len(selected_screenshots)} selected screenshots)", key="gen_selected"):
+            with st.spinner("Creating ZIP..."):
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for fname, img_bytes, _ in selected_screenshots:
+                        if use_png:
+                            arr = np.frombuffer(img_bytes, np.uint8)
+                            frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                            _, png_bytes = cv2.imencode(".png", frm)
+                            zf.writestr(fname, png_bytes.tobytes())
+                        else:
+                            zf.writestr(fname, img_bytes)
+                zip_buffer.seek(0)
+            st.download_button(
+                f"Download {len(selected_screenshots)} selected screenshots as ZIP",
+                zip_buffer,
+                file_name="screenshots_selected.zip",
+                mime="application/zip",
+                key="dl_selected",
+            )
 
         st.markdown("**Download as Combined Screenshot Layout**")
         csl_col1, csl_col2 = st.columns(2)
@@ -549,7 +556,7 @@ if st.session_state.screenshots:
                 for fname, _, ts in active:
                     st.session_state.captions[fname] = match_transcript(ts, segments)
 
-            total_pages = ceil(len(active) / 20)
+            total_pages = ceil(len(active) / 10)
             page = st.session_state.page
 
             col_prev, col_info, col_next = st.columns([1, 2, 1])
@@ -564,14 +571,18 @@ if st.session_state.screenshots:
                     st.session_state.page += 1
                     st.rerun()
 
-            start = page * 20
-            end = min(start + 20, len(active))
+            start = page * 10
+            end = min(start + 10, len(active))
 
             for fname, img_bytes, ts in active[start:end]:
                 ts_str = f"{int(ts//3600):02d}:{int((ts%3600)//60):02d}:{int(ts%60):02d}"
                 col_img, col_text = st.columns([1, 2])
                 with col_img:
-                    st.image(img_bytes, caption=ts_str, use_container_width=True)
+                    arr = np.frombuffer(img_bytes, np.uint8)
+                    thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                    thumb = resize_frame(thumb, max_width=480)
+                    _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
                 with col_text:
                     new_text = st.text_area(
                         f"caption_{fname}",
