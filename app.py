@@ -223,7 +223,7 @@ with st.expander("Combined Screenshot Layout (recommended for Mural uploads)"):
         per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5)
         add_spacing = st.checkbox("Add spacing between screenshots", value=True)
         if add_spacing:
-            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=30, step=5)
+            spacing = st.slider("Spacing between screenshots (pixels)", min_value=5, max_value=60, value=45, step=5)
         else:
             spacing = 0
     else:
@@ -283,7 +283,10 @@ if uploaded_file:
                         ts_str = f"{int(ts//3600):02d}h{int((ts%3600)//60):02d}m{int(ts%60):02d}s"
                         ext = "png" if use_png else "jpg"
                         fname = f"screenshot_{screenshot_count:04d}_{ts_str}.{ext}"
-                        _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                        if use_png:
+                            _, img_bytes = cv2.imencode(".png", processed)
+                        else:
+                            _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
                         img_bytes = img_bytes.tobytes()
                         parts[part_num].append((fname, img_bytes, ts))
                         all_screenshots.append((fname, img_bytes, ts))
@@ -348,8 +351,12 @@ if uploaded_file:
                                 sheet = np.hstack(interleaved)
                             else:
                                 sheet = np.hstack(normalized)
-                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                            if use_png:
+                                _, sheet_bytes = cv2.imencode(".png", sheet)
+                                zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
+                            else:
+                                _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                                zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
                             sheet_count += 1
                     sheets_buffer.seek(0)
                     part_label = f" (part {part_num} of {split_parts})" if split_parts > 1 else ""
@@ -435,11 +442,10 @@ if st.session_state.screenshots:
             else:
                 st.session_state.deselected.discard(fname)
         with col_img:
-            # Display small thumbnail for review (saves memory/bandwidth)
             arr = np.frombuffer(img_bytes, np.uint8)
             thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            thumb = resize_frame(thumb, max_width=480)
-            _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            thumb = resize_frame(thumb, max_width=800)
+            _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 88])
             st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
         st.divider()
 
@@ -471,7 +477,7 @@ if st.session_state.screenshots:
         with csl_col1:
             csl_per_row = st.select_slider("Screenshots per row", options=[3, 4, 5, 6], value=5, key="csl_per_row")
         with csl_col2:
-            csl_spacing = st.slider("Spacing (pixels)", min_value=0, max_value=60, value=30, step=5, key="csl_spacing")
+            csl_spacing = st.slider("Spacing (pixels)", min_value=0, max_value=60, value=45, step=5, key="csl_spacing")
 
         if st.button("Generate Combined Screenshot Layout", key="gen_csl"):
             with st.spinner("Combining screenshots..."):
@@ -508,8 +514,12 @@ if st.session_state.screenshots:
                             sheet = np.hstack(interleaved)
                         else:
                             sheet = np.hstack(normalized)
-                        _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                        zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                        if use_png:
+                            _, sheet_bytes = cv2.imencode(".png", sheet)
+                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
+                        else:
+                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
                         sheet_count += 1
                 csl_buffer.seek(0)
             st.download_button(
@@ -580,8 +590,8 @@ if st.session_state.screenshots:
                 with col_img:
                     arr = np.frombuffer(img_bytes, np.uint8)
                     thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                    thumb = resize_frame(thumb, max_width=480)
-                    _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                    thumb = resize_frame(thumb, max_width=800)
+                    _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 88])
                     st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
                 with col_text:
                     new_text = st.text_area(
