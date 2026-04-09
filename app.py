@@ -190,9 +190,9 @@ with st.expander("Quality settings"):
         index=2,
     )
     quality_map = {
-        "Standard (faster, smaller files)": (800, 85),
-        "High (recommended)": (1280, 95),
-        "Maximum (slowest, largest files)": (1920, 100),
+        "Standard (faster, smaller files)": (1280, 85),
+        "High (recommended)": (1920, 95),
+        "Maximum (slowest, largest files)": (9999, 100),
     }
     max_width, jpeg_quality = quality_map[quality_preset]
     img_format = st.radio(
@@ -444,8 +444,8 @@ if st.session_state.screenshots:
         with col_img:
             arr = np.frombuffer(img_bytes, np.uint8)
             thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-            thumb = resize_frame(thumb, max_width=800)
-            _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 88])
+            thumb = resize_frame(thumb, max_width=1600)
+            _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 97])
             st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
         st.divider()
 
@@ -590,8 +590,8 @@ if st.session_state.screenshots:
                 with col_img:
                     arr = np.frombuffer(img_bytes, np.uint8)
                     thumb = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                    thumb = resize_frame(thumb, max_width=800)
-                    _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 88])
+                    thumb = resize_frame(thumb, max_width=1600)
+                    _, thumb_bytes = cv2.imencode(".jpg", thumb, [cv2.IMWRITE_JPEG_QUALITY, 97])
                     st.image(thumb_bytes.tobytes(), caption=ts_str, use_container_width=True)
                 with col_text:
                     new_text = st.text_area(
