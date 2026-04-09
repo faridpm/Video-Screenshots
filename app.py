@@ -21,11 +21,17 @@ def crop_frame(frame, top, bottom, left, right):
     return frame[int(h*top/100):int(h*(100-bottom)/100), int(w*left/100):int(w*(100-right)/100)]
 
 
+def sharpen_frame(frame, strength=1.5):
+    """Unsharp mask: enhances edges without amplifying noise. Best for screen recordings."""
+    blurred = cv2.GaussianBlur(frame, (0, 0), 2.0)
+    return cv2.addWeighted(frame, 1.0 + strength, blurred, -strength, 0)
+
+
 def resize_frame(frame, max_width):
     h, w = frame.shape[:2]
     if w > max_width:
         scale = max_width / w
-        frame = cv2.resize(frame, (max_width, int(h * scale)))
+        frame = cv2.resize(frame, (max_width, int(h * scale)), interpolation=cv2.INTER_AREA)
     return frame
 
 
@@ -136,7 +142,10 @@ def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scal
         draw.text((12, y), line, fill=(30, 30, 30), font=font)
         y += line_h
     out = io.BytesIO()
-    new_img.save(out, format='PNG')
+    if use_png:
+        new_img.save(out, format='PNG')
+    else:
+        new_img.save(out, format='JPEG', quality=jpeg_quality, subsampling=0)
     return out.getvalue()
 
 
@@ -194,6 +203,12 @@ with st.expander("Quality settings"):
     max_width = quality_map[quality_preset][0]
     use_png = True
     jpeg_quality = 100  # unused, kept for caption export compatibility
+    st.markdown("---")
+    sharpening = st.slider(
+        "Sharpening (Unsharp Mask)",
+        min_value=0.0, max_value=3.0, value=1.2, step=0.1,
+        help="0 = no sharpening, 1.2 = recommended for screen recordings, 2–3 = strong"
+    )
 
 with st.expander("Crop settings (recommended: remove browser bar, macOS bar & webcam panel)"):
     st.markdown("Cut away the macOS menu bar, browser bar, and webcam panel on the right so only the shared screen content is kept.")
@@ -268,6 +283,8 @@ if uploaded_file:
                     processed = crop_frame(frame, crop_top, crop_bottom, crop_left, crop_right) if use_crop else frame
                     if max_width > 0:
                         processed = resize_frame(processed, max_width=max_width)
+                    if sharpening > 0:
+                        processed = sharpen_frame(processed, strength=sharpening)
                     gray = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
                     is_duplicate = last_saved_gray is not None and np.mean(cv2.absdiff(last_saved_gray, gray)) < 1.5
 
@@ -590,7 +607,8 @@ if st.session_state.screenshots:
                             for fname, img_bytes, _ in active:
                                 caption = get_caption(fname)
                                 annotated = add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=jpeg_quality, font_scale=font_scale)
-                                zf.writestr(fname.rsplit(".", 1)[0] + "_annotated.png", annotated)
+                                ext = "png" if use_png else "jpg"
+                                zf.writestr(fname.rsplit(".", 1)[0] + f"_annotated.{ext}", annotated)
                         zip_buf.seek(0)
                     st.download_button(
                         "Download annotated images ZIP",
