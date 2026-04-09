@@ -136,10 +136,7 @@ def add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=95, font_scal
         draw.text((12, y), line, fill=(30, 30, 30), font=font)
         y += line_h
     out = io.BytesIO()
-    if use_png:
-        new_img.save(out, format='PNG')
-    else:
-        new_img.save(out, format='JPEG', quality=jpeg_quality, subsampling=0)
+    new_img.save(out, format='PNG')
     return out.getvalue()
 
 
@@ -190,17 +187,13 @@ with st.expander("Quality settings"):
         index=2,
     )
     quality_map = {
-        "Standard (faster, smaller files)": (1280, 85),
-        "High (recommended)": (1920, 95),
-        "Maximum / Native (1:1, pixel-perfect)": (0, 100),
+        "Standard (faster, smaller files)": (1280,),
+        "High (recommended)": (1920,),
+        "Maximum / Native (1:1, pixel-perfect)": (0,),
     }
-    max_width, jpeg_quality = quality_map[quality_preset]
-    img_format = st.radio(
-        "Image format",
-        options=["JPEG (smaller files, faster)", "PNG (lossless, sharper text)"],
-        index=1,
-    )
-    use_png = "PNG" in img_format
+    max_width = quality_map[quality_preset][0]
+    use_png = True
+    jpeg_quality = 100  # unused, kept for caption export compatibility
 
 with st.expander("Crop settings (recommended: remove browser bar, macOS bar & webcam panel)"):
     st.markdown("Cut away the macOS menu bar, browser bar, and webcam panel on the right so only the shared screen content is kept.")
@@ -282,12 +275,8 @@ if uploaded_file:
                         part_num = min(frame_number // frames_per_part + 1, split_parts)
                         ts = frame_number / fps
                         ts_str = f"{int(ts//3600):02d}h{int((ts%3600)//60):02d}m{int(ts%60):02d}s"
-                        ext = "png" if use_png else "jpg"
-                        fname = f"screenshot_{screenshot_count:04d}_{ts_str}.{ext}"
-                        if use_png:
-                            _, img_bytes = cv2.imencode(".png", processed, [cv2.IMWRITE_PNG_COMPRESSION, 0])
-                        else:
-                            _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
+                        fname = f"screenshot_{screenshot_count:04d}_{ts_str}.png"
+                        _, img_bytes = cv2.imencode(".png", processed)
                         img_bytes = img_bytes.tobytes()
                         parts[part_num].append((fname, img_bytes, ts))
                         all_screenshots.append((fname, img_bytes, ts))
@@ -330,7 +319,6 @@ if uploaded_file:
                                     row_frames.append(frm)
                             if not row_frames:
                                 continue
-                            # Normalize all frames to the same height
                             target_h = row_frames[0].shape[0]
                             normalized = []
                             for frm in row_frames:
@@ -338,7 +326,6 @@ if uploaded_file:
                                     scale = target_h / frm.shape[0]
                                     frm = cv2.resize(frm, (int(frm.shape[1] * scale), target_h))
                                 normalized.append(frm)
-                            # Pad last row with white frames if needed
                             while len(normalized) < per_row:
                                 blank = np.ones_like(normalized[0]) * 240
                                 normalized.append(blank)
@@ -352,12 +339,8 @@ if uploaded_file:
                                 sheet = np.hstack(interleaved)
                             else:
                                 sheet = np.hstack(normalized)
-                            if use_png:
-                                _, sheet_bytes = cv2.imencode(".png", sheet)
-                                zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
-                            else:
-                                _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                                zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                            _, sheet_bytes = cv2.imencode(".png", sheet)
+                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
                             sheet_count += 1
                     sheets_buffer.seek(0)
                     part_label = f" (part {part_num} of {split_parts})" if split_parts > 1 else ""
@@ -372,13 +355,7 @@ if uploaded_file:
                     zip_buffer = io.BytesIO()
                     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                         for fname, img_bytes, _ in part_screenshots:
-                            if use_png:
-                                arr = np.frombuffer(img_bytes, np.uint8)
-                                frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                                _, png_bytes = cv2.imencode(".png", frm)
-                                zf.writestr(fname, png_bytes.tobytes())
-                            else:
-                                zf.writestr(fname, img_bytes)
+                            zf.writestr(fname, img_bytes)
                     zip_buffer.seek(0)
                     label = f"Download part {part_num} of {split_parts} ({len(part_screenshots)} screenshots)" if split_parts > 1 else f"Download {screenshot_count} screenshots as ZIP"
                     st.download_button(
@@ -457,13 +434,7 @@ if st.session_state.screenshots:
                 zip_buffer = io.BytesIO()
                 with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
                     for fname, img_bytes, _ in selected_screenshots:
-                        if use_png:
-                            arr = np.frombuffer(img_bytes, np.uint8)
-                            frm = cv2.imdecode(arr, cv2.IMREAD_COLOR)
-                            _, png_bytes = cv2.imencode(".png", frm)
-                            zf.writestr(fname, png_bytes.tobytes())
-                        else:
-                            zf.writestr(fname, img_bytes)
+                        zf.writestr(fname, img_bytes)
                 zip_buffer.seek(0)
             st.download_button(
                 f"Download {len(selected_screenshots)} selected screenshots as ZIP",
@@ -515,12 +486,8 @@ if st.session_state.screenshots:
                             sheet = np.hstack(interleaved)
                         else:
                             sheet = np.hstack(normalized)
-                        if use_png:
-                            _, sheet_bytes = cv2.imencode(".png", sheet)
-                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
-                        else:
-                            _, sheet_bytes = cv2.imencode(".jpg", sheet, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
-                            zf.writestr(f"combined_layout_{sheet_count+1:03d}.jpg", sheet_bytes.tobytes())
+                        _, sheet_bytes = cv2.imencode(".png", sheet)
+                        zf.writestr(f"combined_layout_{sheet_count+1:03d}.png", sheet_bytes.tobytes())
                         sheet_count += 1
                 csl_buffer.seek(0)
             st.download_button(
@@ -623,8 +590,7 @@ if st.session_state.screenshots:
                             for fname, img_bytes, _ in active:
                                 caption = get_caption(fname)
                                 annotated = add_caption_to_image(img_bytes, caption, use_png, jpeg_quality=jpeg_quality, font_scale=font_scale)
-                                ext = "png" if use_png else "jpg"
-                                zf.writestr(fname.rsplit(".", 1)[0] + f"_annotated.{ext}", annotated)
+                                zf.writestr(fname.rsplit(".", 1)[0] + "_annotated.png", annotated)
                         zip_buf.seek(0)
                     st.download_button(
                         "Download annotated images ZIP",
