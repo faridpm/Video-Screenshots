@@ -186,13 +186,13 @@ st.caption("Tip: For large videos (over 500 MB), split into 2–3 parts to keep 
 with st.expander("Quality settings"):
     quality_preset = st.radio(
         "Screenshot quality",
-        options=["Standard (faster, smaller files)", "High (recommended)", "Maximum (slowest, largest files)"],
+        options=["Standard (faster, smaller files)", "High (recommended)", "Maximum / Native (1:1, pixel-perfect)"],
         index=2,
     )
     quality_map = {
         "Standard (faster, smaller files)": (1280, 85),
         "High (recommended)": (1920, 95),
-        "Maximum (slowest, largest files)": (9999, 100),
+        "Maximum / Native (1:1, pixel-perfect)": (0, 100),
     }
     max_width, jpeg_quality = quality_map[quality_preset]
     img_format = st.radio(
@@ -273,7 +273,8 @@ if uploaded_file:
 
                 if frame_number % interval_frames == 0:
                     processed = crop_frame(frame, crop_top, crop_bottom, crop_left, crop_right) if use_crop else frame
-                    processed = resize_frame(processed, max_width=max_width)
+                    if max_width > 0:
+                        processed = resize_frame(processed, max_width=max_width)
                     gray = cv2.cvtColor(processed, cv2.COLOR_BGR2GRAY)
                     is_duplicate = last_saved_gray is not None and np.mean(cv2.absdiff(last_saved_gray, gray)) < 1.5
 
@@ -284,7 +285,7 @@ if uploaded_file:
                         ext = "png" if use_png else "jpg"
                         fname = f"screenshot_{screenshot_count:04d}_{ts_str}.{ext}"
                         if use_png:
-                            _, img_bytes = cv2.imencode(".png", processed)
+                            _, img_bytes = cv2.imencode(".png", processed, [cv2.IMWRITE_PNG_COMPRESSION, 0])
                         else:
                             _, img_bytes = cv2.imencode(".jpg", processed, [cv2.IMWRITE_JPEG_QUALITY, jpeg_quality])
                         img_bytes = img_bytes.tobytes()
